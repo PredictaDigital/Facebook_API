@@ -72,21 +72,35 @@ class FetchAdInsightsView(APIView):
 
         print(f"Request URL: {url_with_params}")
 
-        # Fetch insights data
-        response = requests.get(url_with_params)
-        print("Status Code:", response.status_code)
-        print("Response Content:", response.text)
+        # Initialize an empty list to hold all insights
+        insights = []
 
-        if response.status_code != 200:
-            return Response(
-                {"error": "Failed to fetch insights", "details": response.json()},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        while True:
+            # Fetch insights data
+            response = requests.get(url_with_params)
+            print("Status Code:", response.status_code)
+            print("Response Content:", response.text)
 
-        # Parse and save insights
-        insights = response.json().get("data", [])
-        
-        #Save insights to the database (if needed)
+            if response.status_code != 200:
+                return Response(
+                    {"error": "Failed to fetch insights", "details": response.json()},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Parse the data and add it to the insights list
+            data = response.json().get("data", [])
+            insights.extend(data)
+
+            # Check if there's more data to fetch (pagination)
+            paging = response.json().get('paging', {})
+            next_url = paging.get('next')
+            if not next_url:
+                break  # No more pages, exit the loop
+
+            # Update URL with the next page URL
+            url_with_params = next_url
+
+        # Save insights to the database
         for insight in insights:
             FBAdsInsight.objects.create(
                 account_id=insight.get("account_id"),
@@ -120,8 +134,8 @@ class FetchAdInsightsView(APIView):
         response_data = {
             "message": "Insights fetched successfully.",
             "data": insights,
-            "ldata": created_at,
-            "untill": sincedate
+            "since": sincedate,
+            "untill": today.strftime('%Y-%m-%d')
         }
 
         return Response(response_data, status=status.HTTP_200_OK)

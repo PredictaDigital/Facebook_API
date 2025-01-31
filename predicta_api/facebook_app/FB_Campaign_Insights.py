@@ -1,17 +1,17 @@
-import requests
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from facebook_business.api import FacebookAdsApi
+from facebook_business.adobjects.adaccount import AdAccount
 from datetime import timedelta
 from datetime import datetime
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from .models import FacebookCampaignInsight  # Ensure this model can handle country and region breakdowns
-from .utils import get_fb_oauth_details
-import json
 import time
+from .utils import get_fb_oauth_details  # Import the utility function
+from rest_framework import status
+from .models import FacebookCampaignInsight
+import requests
 
 class FetchAdInsightsByCampaigns(APIView):
     def get(self, request):
-        # Fetch the access token and ad account ID using the utility function
         email = request.COOKIES.get('email')
         fb_details = get_fb_oauth_details(email)
 
@@ -51,76 +51,124 @@ class FetchAdInsightsByCampaigns(APIView):
             sincedates = now - timedelta(weeks=160.774)  # Rough estimate (36 months)
             sincedate = sincedates.strftime('%Y-%m-%d')
 
-        print("Until date:", sincedate)
+        # Initialize API
+        FacebookAdsApi.init('385745461007462', '39838a1fd0b95af866f368acc81f77b0', access_token)
+        ad_account = AdAccount(ad_account)
 
-        current_time = time.strftime("%H:%M:%S")
-        time_range = {"since": sincedate, "until": today.strftime('%Y-%m-%d')}
-
-        # Facebook Graph API endpoint
-        url = f"https://graph.facebook.com/v22.0/{ad_account}/insights"
-
-        # Fields and parameters, including breakdowns for country and region
+        # Define Fields
         fields = [
-            'campaign_name', 'Objective' , 'adset_name', 'ad_name', 'ad_id', 'adset_id', 'campaign_id', 
-            'clicks', 'cpc', 'cpm', 'ctr', 'impressions', 'reach', 'spend', 'frequency',
+            'name', 'objective', 'status', 'id', 'account_id',
+            'created_time', 'updated_time', 'buying_type', 'start_time',
+            'stop_time', 'effective_status'
         ]
-        
-        # Breakdown parameters for country and region
-        # breakdowns = ['skan_campaign_id']
-        
-        # Construct the URL with query parameters directly
-        url_with_params = f"{url}?fields={','.join(fields)}&time_range={json.dumps(time_range)}&level=ad&access_token={access_token}"
 
-        print(f"Request URL: {url_with_params}")
+        metrics = ['clicks', 'cpc', 'cpm', 'ctr', 'impressions', 'reach', 'spend', 'frequency']
 
-        # Fetch insights data
-        response = requests.get(url_with_params)
-        print("Status Code:", response.status_code)
-        print("Response Content:", response.text)
+        today = datetime.today()
+        time_range = {"since": sincedate, "until": today.strftime('%Y-%m-%d')}
+        current_time = time.strftime("%H:%M:%S")
 
-        if response.status_code != 200:
-            return Response(
-                {"error": "Failed to fetch insights", "details": response.json()},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Initialize an empty list to hold all campaigns
+        all_campaigns = []
 
-        # Parse and save insights
-        insights = response.json().get("data", [])
-        
-        # Save insights to the database (including breakdowns for country and region)
-        # for insight in insights:
-        #     # Extract insight fields and store them in the database
-        #     FacebookCampaignInsight.objects.create(
-        #         campaign_name=insight.get('campaign_name'),
-        #         objective=insight.get('objective'),
-        #         status=insight.get('status'),
-        #         campaign_id=insight.get('campaign_id'),
-        #         account_id=insight.get('account_id'),
-        #         created_time=insight.get('created_time'),
-        #         updated_time=insight.get('updated_time'),
-        #         start_time=insight.get('start_time'),
-        #         stop_time=insight.get('stop_time', today),
-        #         buying_type=insight.get('buying_type'),
-        #         effective_status=insight.get('effective_status'),
-        #         clicks=insight.get('clicks', 0),
-        #         cpc=insight.get('cpc', 0),
-        #         cpm=insight.get('cpm', 0),
-        #         ctr=insight.get('ctr', 0),
-        #         frequency=insight.get('frequency', 0),
-        #         impressions=insight.get('impressions', 0),
-        #         reach=insight.get('reach', 0),
-        #         spend=insight.get('spend', 0),
-        #         skan_campaign_id=insight.get('skan_campaign_id', ''),
-        #         data_created_date=today.strftime('%Y-%m-%d'),
-        #         data_created_time=current_time
-        #     )
+        # Fetch the campaigns with pagination
+        campaigns = ad_account.get_campaigns(fields=fields)
 
-        # Prepare the response data
-        response_data = {
-            "message": "Campaign Insights fetched successfully.",
-            "data": insights,
-            "ldata": created_at,
-            "untill": sincedate
-        }
+        # Process each page of campaigns
+        while True:
+            # Add the current page's campaigns to the all_campaigns list
+            all_campaigns.extend(campaigns)
 
-        return Response(response_data, status=status.HTTP_200_OK)
+            # If there is another page, fetch the next page
+            if 'paging' in campaigns and 'next' in campaigns['paging']:
+                # Fetch the next page of campaigns
+                campaigns = requests.get(campaigns['paging']['next']).json()
+            else:
+                break  # Stop if there are no more pages
+
+        # Initialize an empty list to hold insights data
+        all_insights_data = []
+
+        # For each campaign, fetch its insights separately
+        for campaign in all_campaigns:
+            # Fetch insights for the campaign
+            campaign_id = campaign.get('id')
+            print(campaign_id)
+            insights = campaign.get_insights(fields=metrics, params={'time_range': time_range})
+            print(insights)
+
+            # Check if insights is None or empty and handle it
+            if not insights:
+                # If insights is empty or None, create a default dict with 0 for all fields
+                insights = [{
+                    'clicks': 0,
+                    'cpc': 0,
+                    'cpm': 0,
+                    'ctr': 0,
+                    'impressions': 0,
+                    'reach': 0,
+                    'spend': 0,
+                    'frequency': 0
+                }]
+
+            # Process each page of insights
+            while True:
+                for insight in insights:
+                    # Store insights in the database
+                    FacebookCampaignInsight.objects.create(
+                        email=email,
+                        campaign_name=campaign.get('name', ''),
+                        objective=campaign.get('objective', ''),
+                        status=campaign.get('status', ''),
+                        campaign_id=campaign.get('id', ''),
+                        account_id=campaign.get('account_id', ''),
+                        created_time=campaign.get('created_time', today),
+                        updated_time=campaign.get('updated_time', today),
+                        start_time=campaign.get('start_time', today),
+                        stop_time=campaign.get('stop_time', today),
+                        buying_type=campaign.get('buying_type', ''),
+                        effective_status=campaign.get('effective_status', ''),
+                        clicks=insight.get('clicks', 0),
+                        cpc=insight.get('cpc', 0),
+                        cpm=insight.get('cpm', 0),
+                        ctr=insight.get('ctr', 0),
+                        frequency=insight.get('frequency', 0),
+                        impressions=insight.get('impressions', 0),
+                        reach=insight.get('reach', 0),
+                        spend=insight.get('spend', 0),
+                        data_created_date=today.strftime('%Y-%m-%d'),
+                        data_created_time=current_time
+                    )
+                    # Append the insights to the response data
+                    all_insights_data.append({
+                        'campaign_name': campaign.get('name', ''),
+                        'objective': campaign.get('objective', ''),
+                        'status': campaign.get('status', ''),
+                        'campaign_id': campaign.get('id', ''),
+                        'account_id': campaign.get('account_id', ''),
+                        'created_time': campaign.get('created_time', today),
+                        'updated_time': campaign.get('updated_time', today),
+                        'start_time': campaign.get('start_time', today),
+                        'stop_time': campaign.get('stop_time', today),
+                        'buying_type': campaign.get('buying_type', ''),
+                        'effective_status': campaign.get('effective_status', ''),
+                        'clicks': insight.get('clicks', 0),
+                        'cpc': insight.get('cpc', 0),
+                        'cpm': insight.get('cpm', 0),
+                        'ctr': insight.get('ctr', 0),
+                        'frequency': insight.get('frequency', 0),
+                        'impressions': insight.get('impressions', 0),
+                        'reach': insight.get('reach', 0),
+                        'spend': insight.get('spend', 0),
+                        'data_created_date': today.strftime('%Y-%m-%d'),
+                        'data_created_time': current_time
+                    })
+
+                # Check if there are more pages of insights
+                if 'paging' in insights and 'next' in insights['paging']:
+                    insights = requests.get(insights['paging']['next']).json()  # Fetch the next page of insights
+                else:
+                    break  # Exit the loop if no more pages
+
+        # Return the collected insights data as a response
+        return Response(all_insights_data)

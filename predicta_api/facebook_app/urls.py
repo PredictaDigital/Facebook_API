@@ -14,6 +14,7 @@ from .FB_Campaign_Insights import FetchAdInsightsByCampaigns
 from .FB_Followers_Statistics import FetchFollowersStatistics
 from .FB_Followers_by_City import FetchFollowersCity
 from .FB_Insights import FetchFBPageInsigths
+from .FB_Posts_Insights import FetchFBPosts
 
 urlpatterns = [
     path('facebook_oauth/', FacebookOAuth.as_view(), name='facebook_oauth'),
@@ -29,5 +30,6 @@ urlpatterns = [
     path('facebook_get-followers/', FetchFollowersStatistics.as_view(), name='get_followers'),
     path('facebook_get-followers-city/', FetchFollowersCity.as_view(), name='get_followers_city'),
     path('facebook_get-page-insigths/', FetchFBPageInsigths.as_view(), name='get_followers_city'),
+    path('facebook_get-posts-insigths/', FetchFBPosts.as_view(), name='get_post'),
     #path('token/save', StoreFBData.as_view(), name='store-fb-data'),
 ]

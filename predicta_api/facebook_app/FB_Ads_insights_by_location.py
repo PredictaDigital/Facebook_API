@@ -1,10 +1,9 @@
 import requests
-from datetime import timedelta
-from datetime import datetime
+from datetime import timedelta, datetime
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .models import FBAdsInsightByLocation  # Ensure this model can handle country and region breakdowns
+from .models import FBAdsInsightByLocation
 from .utils import get_fb_oauth_details
 import json
 import time
@@ -69,27 +68,41 @@ class FetchAdInsightsBylocation(APIView):
         # Breakdown parameters for country and region
         breakdowns = ['country', 'region']
         
-        # Construct the URL with query parameters directly
-        url_with_params = f"{url}?fields={','.join(fields)}&breakdowns={','.join(breakdowns)}&time_range={json.dumps(time_range)}&level=ad&access_token={access_token}"
-
-        print(f"Request URL: {url_with_params}")
-
-        # Fetch insights data
-        response = requests.get(url_with_params)
-        print("Status Code:", response.status_code)
-        print("Response Content:", response.text)
-
-        if response.status_code != 200:
-            return Response(
-                {"error": "Failed to fetch insights", "details": response.json()},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Parse and save insights
-        insights = response.json().get("data", [])
+        # Set limit for how many records to fetch per request (Facebook Graph API typically has a max limit)
+        limit = 1000  # Adjust this limit based on your needs
         
-        # Save insights to the database (including breakdowns for country and region)
-        for insight in insights:
+        # Construct the URL with query parameters directly
+        url_with_params = f"{url}?fields={','.join(fields)}&breakdowns={','.join(breakdowns)}&time_range={json.dumps(time_range)}&level=ad&access_token={access_token}&limit={limit}"
+
+        all_insights = []
+        
+        # Fetch insights data and handle pagination
+        while url_with_params:
+            response = requests.get(url_with_params)
+            print("Status Code:", response.status_code)
+            print("Response Content:", response.text)
+
+            if response.status_code != 200:
+                return Response(
+                    {"error": "Failed to fetch insights", "details": response.json()},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Parse the current page of insights
+            data = response.json()
+            insights = data.get("data", [])
+            all_insights.extend(insights)
+
+            # Check if there is a next page (pagination)
+            url_with_params = data.get("paging", {}).get("next", None)
+
+            # Optional: Delay to avoid hitting rate limits (e.g., 1 second)
+            time.sleep(1)
+
+        print(f"Total records fetched: {len(all_insights)}")
+
+        # Save all insights to the database (including breakdowns for country and region)
+        for insight in all_insights:
             FBAdsInsightByLocation.objects.create(
                 account_id=insight.get("account_id"),
                 account_name=insight.get("account_name"),
@@ -124,7 +137,7 @@ class FetchAdInsightsBylocation(APIView):
         # Prepare the response data
         response_data = {
             "message": "Insights fetched successfully.",
-            "data": insights,
+            "data": all_insights,
             "ldata": created_at,
             "untill": sincedate
         }
