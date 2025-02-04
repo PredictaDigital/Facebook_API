@@ -20,4 +20,5 @@ from django.urls import path, include
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('facebook_app/', include('facebook_app.urls')),  # Include facebook_app routes
+    path('instagram/', include('instagram.urls')),  # Include Instagram routes
 ]

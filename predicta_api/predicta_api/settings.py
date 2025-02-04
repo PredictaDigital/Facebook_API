@@ -15,6 +15,12 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+#SSL Related
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -27,6 +33,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'facebook_app',
+    'instagram',
 ]
 
 MIDDLEWARE = [
